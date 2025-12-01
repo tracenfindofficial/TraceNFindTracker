@@ -143,7 +143,7 @@ class LocationService : Service() {
                 .document(userUid!!)
                 .collection("devices")
                 .document(deviceId)
-                .update("status", "online")
+                .set(initialData, SetOptions.merge())
                 .addOnFailureListener { e -> Log.e("LocationService", "Failed to set online", e) }
         }
 
