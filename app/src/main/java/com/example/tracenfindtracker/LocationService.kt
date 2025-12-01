@@ -129,6 +129,16 @@ class LocationService : Service() {
         // ✅ ONLINE STATUS UPDATE
         if (userUid != null) {
             val deviceId = getDeviceAndroidId()
+
+            // Create a basic payload to ensure document exists immediately
+            val initialData = hashMapOf(
+                "name" to android.os.Build.MODEL, // Ensure name exists
+                "model" to android.os.Build.MODEL,
+                "status" to "online",             // Set status explicitly
+                "type" to "Phone",
+                "lastSeen" to FieldValue.serverTimestamp()
+            )
+
             db.collection("user_data")
                 .document(userUid!!)
                 .collection("devices")
@@ -385,6 +395,7 @@ class LocationService : Service() {
             "name" to Build.MODEL,
             "model" to Build.MODEL,
             "type" to "Phone",
+            "status" to "online",
             "battery" to batLvl,
 
             // ✅ Fix for Operating System
