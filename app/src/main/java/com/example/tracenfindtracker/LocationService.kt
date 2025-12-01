@@ -7,24 +7,25 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
-import android.graphics.Color // ✅ Added
+import android.graphics.Color
 import android.location.Location
 import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
-import android.net.Uri // ✅ Added
+import android.net.Uri
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.StatFs
 import android.provider.Settings
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
@@ -157,8 +158,62 @@ class LocationService : Service() {
         ).addOnFailureListener { Log.e("LocationService", "Failed to update security: $it") }
     }
 
+    // --- 📊 NEW HELPER FUNCTIONS START HERE ---
+
+    private fun getStorageInfo(): String {
+        return try {
+            val stat = StatFs(Environment.getDataDirectory().path)
+            val bytesAvailable = stat.blockSizeLong * stat.availableBlocksLong
+            val bytesTotal = stat.blockSizeLong * stat.blockCountLong
+
+            val gbAvailable = bytesAvailable / (1024f * 1024f * 1024f)
+            val gbTotal = bytesTotal / (1024f * 1024f * 1024f)
+
+            "%.1f GB / %.1f GB".format(gbAvailable, gbTotal)
+        } catch (e: Exception) {
+            "Unknown"
+        }
+    }
+
+    private fun getSignalStrength(): String {
+        var strength = "N/A"
+        try {
+            val tm = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                val cellInfos = tm.allCellInfo
+                if (!cellInfos.isNullOrEmpty()) {
+                    // Grab the first registered cell tower info or the first available
+                    val currentCell = cellInfos.firstOrNull { it.isRegistered } ?: cellInfos[0]
+
+                    val level = when (currentCell) {
+                        is android.telephony.CellInfoLte -> currentCell.cellSignalStrength.level
+                        is android.telephony.CellInfoGsm -> currentCell.cellSignalStrength.level
+                        is android.telephony.CellInfoWcdma -> currentCell.cellSignalStrength.level
+                        is android.telephony.CellInfoNr -> currentCell.cellSignalStrength.level // 5G
+                        else -> 0
+                    }
+
+                    // Convert 0-4 scale to text
+                    strength = when (level) {
+                        4 -> "Excellent"
+                        3 -> "Good"
+                        2 -> "Fair"
+                        1 -> "Poor"
+                        else -> "Weak"
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("LocationService", "Signal Error", e)
+        }
+        return strength
+    }
+
     private fun getNetworkInfo(): Map<String, String> {
-        var ssid = "Unknown"; var ip = "0.0.0.0"; var type = "Offline"; var mac = "Unknown"
+        var ssid = "Unknown"
+        var ip = "0.0.0.0"
+        var type = "Offline"
+        var mac = "Unknown"
         try {
             val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val activeNet = cm.activeNetwork
@@ -167,16 +222,25 @@ class LocationService : Service() {
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
                     type = "Wi-Fi"
                     val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                    ssid = wm.connectionInfo.ssid.replace("\"", "")
-                    ip = Formatter.formatIpAddress(wm.connectionInfo.ipAddress)
-                    mac = wm.connectionInfo.bssid ?: "Unknown"
+                    val connectionInfo = wm.connectionInfo
+                    if (connectionInfo != null) {
+                        ssid = connectionInfo.ssid.replace("\"", "")
+                        ip = Formatter.formatIpAddress(connectionInfo.ipAddress)
+                        mac = connectionInfo.bssid ?: "Unknown"
+                    }
                 } else if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) {
                     type = "Mobile Data"
+                    // IP for mobile data is harder to get reliably without iterating interfaces,
+                    // but usually not critical for this use case.
                 }
             }
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+            Log.e("LocationService", "Network Info Error", e)
+        }
         return mapOf("type" to type, "ssid" to ssid, "ip" to ip, "mac" to mac)
     }
+
+    // --- 📊 NEW HELPER FUNCTIONS END HERE ---
 
     private fun checkSimSecurity(): Map<String, String> {
         var simStatus = "Checking..."
@@ -276,25 +340,60 @@ class LocationService : Service() {
         } catch (e: SecurityException) {}
     }
 
+    // --- 🚀 MAIN UPDATE FUNCTION ---
     private fun sendLocationToFirebase(location: Location) {
         val uid = userUid ?: return
         val deviceId = getDeviceAndroidId()
         val deviceRef = db.collection("user_data").document(uid).collection("devices").document(deviceId)
+
+        // 1. Get Battery
         val batMan = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
         val batLvl = batMan.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+
+        // 2. Get Info Maps
         val netInfo = getNetworkInfo()
         val simInfo = checkSimSecurity()
+        val storageInfo = getStorageInfo()
+        val signalStrength = getSignalStrength()
 
+        // 3. Extract Flat Values for Dashboard
+        val ipAddress = netInfo["ip"] ?: "N/A"
+        val macAddress = netInfo["mac"] ?: "N/A"
+        val connectionType = netInfo["type"] ?: "Offline"
+        val carrierName = simInfo["carrier"] ?: "Unknown"
+        val ssid = netInfo["ssid"] ?: ""
+
+        // Format: "Wi-Fi (MyHome)" or just "Mobile Data"
+        val displayNetwork = if(ssid.isNotEmpty() && ssid != "Unknown") "$connectionType ($ssid)" else connectionType
+
+        // 4. Construct Payload
         val currentPayload = hashMapOf(
             "name" to Build.MODEL,
             "model" to Build.MODEL,
             "type" to "Phone",
             "battery" to batLvl,
+
+            // ✅ Fix for Operating System
+            "os" to "Android",
+            "os_version" to "Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})",
+            "operating_system" to "Android ${Build.VERSION.RELEASE}",
+
             "lastSeen" to FieldValue.serverTimestamp(),
             "location" to hashMapOf("lat" to location.latitude, "lng" to location.longitude),
+
+            // Nested maps (keep for history/deep details)
             "network" to netInfo,
-            "security" to simInfo
+            "security" to simInfo,
+
+            // ✅ Flat fields for Dashboard "N/A" Fixes
+            "network_display" to displayNetwork,
+            "ip_address" to ipAddress,
+            "mac_address" to macAddress,
+            "carrier" to carrierName,
+            "storage" to storageInfo,
+            "signal_strength" to signalStrength
         )
+
         deviceRef.set(currentPayload, SetOptions.merge())
 
         if (lastHistoryLocation == null || location.distanceTo(lastHistoryLocation!!) > 50) {

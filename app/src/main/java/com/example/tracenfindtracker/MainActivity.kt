@@ -72,10 +72,6 @@ val TnfTextSlate = Color(0xFF94A3B8)
 val TnfGreen = Color(0xFF10B981)
 val TnfRed = Color(0xFFEF4444)
 
-val HeroGradient = Brush.linearGradient(
-    colors = listOf(Color(0xFF4361EE), Color(0xFF8596F6), Color(0xFF6366F1), Color(0xFF9333EA))
-)
-
 private val TraceNFindScheme = lightColorScheme(
     primary = TnfPrimary,
     onPrimary = Color.White,
@@ -106,6 +102,15 @@ class MainActivity : ComponentActivity() {
     }
 
     // --- PERMISSION LAUNCHERS ---
+
+    // ✅ Launcher for Overlay Permission (Display over other apps)
+    private val overlayPermissionLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        // When they come back from settings, check if we can proceed
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(this)) {
+            checkPermissionsAndStartFlow()
+        }
+    }
+
     private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         val allGranted = permissions.entries.all { it.value }
         if (allGranted) {
@@ -247,6 +252,14 @@ class MainActivity : ComponentActivity() {
         hasAllPermissions = areAllPermissionsGranted()
     }
 
+    // ✅ Re-check permissions every time app resumes
+    override fun onResume() {
+        super.onResume()
+        if (userUid != null) {
+            hasAllPermissions = areAllPermissionsGranted()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         FirebaseApp.initializeApp(this)
@@ -313,7 +326,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun checkPermissionsAndStartFlow() {
-        // 1. Standard Permissions (Popups)
+        // ✅ Check Overlay Permission FIRST.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Please allow 'Display over other apps' to enable lock screen security.", Toast.LENGTH_LONG).show()
+            val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
+            overlayPermissionLauncher.launch(intent)
+            return // Stop here, wait for them to come back
+        }
+
+        // Standard Permissions
         val standardPermissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.READ_CONTACTS,
@@ -424,6 +445,8 @@ fun PermissionRequestScreen(onGrantClick: () -> Unit) {
         PermissionItem(Icons.Filled.CameraAlt, "Camera", "Capture intruder photos")
         PermissionItem(Icons.Filled.SimCard, "Phone & SMS", "Detect SIM swap")
         PermissionItem(Icons.Filled.Contacts, "Contacts", "Backup data")
+        // Added Explicit UI for clarity
+        PermissionItem(Icons.Filled.Layers, "Overlay", "Show security screen")
 
         Spacer(modifier = Modifier.height(48.dp))
         Button(onClick = onGrantClick, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = TnfPrimary), shape = RoundedCornerShape(12.dp)) {
@@ -485,8 +508,7 @@ fun DashboardScreen(userUid: String, onStartTracking: () -> Unit, onStopTracking
                     Text("Trace'N Find", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                 }
                 Row {
-                    // No Gear Icon
-                    IconButton(onClick = { showMfaInput = true }) { Icon(Icons.Filled.Lock, contentDescription = "MFA", tint = TnfGreen) }
+                    // ❌ LOCK BUTTON REMOVED HERE
                     IconButton(onClick = onSignOut) { Icon(Icons.Outlined.Logout, contentDescription = "Logout", tint = TnfRed) }
                 }
             }
