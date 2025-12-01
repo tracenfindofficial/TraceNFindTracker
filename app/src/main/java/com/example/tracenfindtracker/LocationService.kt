@@ -260,12 +260,26 @@ class LocationService : Service() {
     }
 
     private fun startLocationUpdates() {
-        val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 5000).setMinUpdateDistanceMeters(0f).build()
+        //val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 5000).setMinUpdateDistanceMeters(0f).build()
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000)
+            .setMinUpdateDistanceMeters(10f) // FIX 1: Ignore movements smaller than 10 meters (stops jitter)
+            .setWaitForAccurateLocation(true) // FIX 2: Wait a few seconds for a "good" fix before reporting
+            .build()
+
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(res: LocationResult) {
-                res.lastLocation?.let {
-                    sendLocationToFirebase(it)
-                    checkGeofence(it)
+                res.lastLocation?.let { location ->
+                    // FIX 3: Filter out "bad" data points (Accuracy Filter)
+                    // If the location uncertainty is > 30 meters, ignore it.
+                    // This prevents the map from jumping blocks away.
+                    if (location.hasAccuracy() && location.accuracy > 30) {
+                        Log.d("LocationService", "Skipping inaccurate location: ${location.accuracy}m")
+                        return@let
+                    }
+
+                    // If passed filters, send to Firebase
+                    sendLocationToFirebase(location)
+                    checkGeofence(location)
                 }
             }
         }
@@ -297,9 +311,15 @@ class LocationService : Service() {
         )
         deviceRef.set(currentPayload, SetOptions.merge())
 
-        if (lastHistoryLocation == null || location.distanceTo(lastHistoryLocation!!) > 50) {
+        val MIN_DISTANCE_FOR_HISTORY = 15f // Only record history if moved 15 meters
+        val REQUIRED_ACCURACY = 30f // Only record if accuracy is better than 30m
+
+        if (lastHistoryLocation == null ||
+            (location.distanceTo(lastHistoryLocation!!) > MIN_DISTANCE_FOR_HISTORY && location.accuracy < REQUIRED_ACCURACY)) {
+
             val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
             val newPoint = hashMapOf("lat" to location.latitude, "lng" to location.longitude, "time" to Date())
+
             deviceRef.collection("location_history").document(todayDate)
                 .set(hashMapOf("route" to FieldValue.arrayUnion(newPoint)), SetOptions.merge())
                 .addOnSuccessListener { lastHistoryLocation = location }
