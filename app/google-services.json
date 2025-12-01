@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "1000921948484",
+    "project_id": "trace-n--find",
+    "storage_bucket": "trace-n--find.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1000921948484:android:ea551016c25cdb4aa67711",
+        "android_client_info": {
+          "package_name": "com.example.tracenfindtracker"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1000921948484-re5vqkbvuo3s2ef4c2iqd8e66c78db1q.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyArcscAkVgATT_M2Vln2j8U5pa8gvXuOj0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1000921948484-re5vqkbvuo3s2ef4c2iqd8e66c78db1q.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
