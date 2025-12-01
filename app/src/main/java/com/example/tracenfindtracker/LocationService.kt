@@ -134,8 +134,8 @@ class LocationService : Service() {
             val initialData = hashMapOf(
                 "name" to android.os.Build.MODEL, // Ensure name exists
                 "model" to android.os.Build.MODEL,
-                "status" to "online",             // Set status explicitly
                 "type" to "Phone",
+                "status" to if (isLostModeActive) "lost" else "online",
                 "lastSeen" to FieldValue.serverTimestamp()
             )
 
