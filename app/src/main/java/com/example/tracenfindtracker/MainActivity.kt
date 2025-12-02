@@ -485,6 +485,7 @@ fun DashboardScreen(userUid: String, onStartTracking: () -> Unit, onStopTracking
     var customPin by remember { mutableStateOf(prefs.getString("sms_pin", "#1234") ?: "#1234") }
     var showMfaInput by remember { mutableStateOf(false) }
     var phoneInput by remember { mutableStateOf("") }
+    var isButtonEnabled by remember { mutableStateOf(true) }
 
     if (showMfaInput) {
         AlertDialog(
@@ -546,8 +547,34 @@ fun DashboardScreen(userUid: String, onStartTracking: () -> Unit, onStopTracking
                 }
             }
             Spacer(modifier = Modifier.height(24.dp))
-            Button(onClick = { if (isTracking) { onStopTracking(); isTracking = false } else { onStartTracking(); isTracking = true } }, modifier = Modifier.fillMaxWidth().height(56.dp), colors = ButtonDefaults.buttonColors(containerColor = if (isTracking) TnfRed else TnfPrimary), shape = RoundedCornerShape(12.dp)) {
-                Text(if (isTracking) "STOP TRACKING" else "START LINK", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Button(
+                onClick = {
+                    isButtonEnabled = false // 1. Disable button immediately
+
+                    if (isTracking) {
+                        onStopTracking()
+                        isTracking = false
+                    } else {
+                        onStartTracking()
+                        isTracking = true
+                    }
+
+                    // 2. Re-enable after 2 seconds (Coroutine)
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                        isButtonEnabled = true
+                    }, 2000)
+                },
+                enabled = isButtonEnabled, // Bind to state
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = if (isTracking) TnfRed else TnfPrimary),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                if (isButtonEnabled) {
+                    Text(if (isTracking) "STOP TRACKING" else "START LINK", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                } else {
+                    // Show a tiny loader or just text
+                    Text("Processing...", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
             }
         }
     }

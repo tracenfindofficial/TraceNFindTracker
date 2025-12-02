@@ -73,7 +73,7 @@ class LocationService : Service() {
     private val stopAlarmReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == ACTION_STOP_ALARM) {
-                stopAlarm()
+                stopAlarm(updateNotification = true)
                 updateDatabaseAction("stop")
             }
         }
@@ -395,7 +395,7 @@ class LocationService : Service() {
             "name" to Build.MODEL,
             "model" to Build.MODEL,
             "type" to "Phone",
-            "status" to "online",
+            "status" to if (isLostModeActive) "lost" else "online",
             "battery" to batLvl,
 
             // ✅ Fix for Operating System
@@ -481,15 +481,19 @@ class LocationService : Service() {
         }
     }
 
-    private fun stopAlarm() {
+    private fun stopAlarm(updateNotification: Boolean = true) {
         try {
             if (mediaPlayer?.isPlaying == true) mediaPlayer?.stop()
             mediaPlayer?.release()
             mediaPlayer = null
             isRinging = false
             sendBroadcast(Intent("CLOSE_ALARM_SCREEN"))
-            val notif = buildNotification()
-            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notif)
+
+            // ✅ ONLY update the notification if requested
+            if (updateNotification) {
+                val notif = buildNotification()
+                getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notif)
+            }
         } catch (e: Exception) {}
     }
 
@@ -540,7 +544,8 @@ class LocationService : Service() {
                 .addOnFailureListener { e -> Log.e("LocationService", "Failed to set offline", e) }
         }
 
-        stopAlarm()
+        stopAlarm(updateNotification = false)
+
         try { unregisterReceiver(stopAlarmReceiver) } catch(e:Exception){}
         try { unregisterReceiver(simStateReceiver) } catch(e:Exception){}
         removeLocationUpdates()
